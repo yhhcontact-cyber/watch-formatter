@@ -131,6 +131,21 @@ def ensure_tables():
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS formatter_settings (
+                    setting_key TEXT PRIMARY KEY,
+                    setting_value TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                INSERT INTO formatter_settings (setting_key, setting_value)
+                VALUES ('members_open', '0')
+                ON CONFLICT (setting_key) DO NOTHING
+                """
+            )
             cur.executemany(
                 """
                 INSERT INTO formatter_suppliers (phone, display_name, aliases)
@@ -144,6 +159,14 @@ def ensure_tables():
         conn.close()
 
 
+def members_are_open():
+    row = query(
+        "SELECT setting_value FROM formatter_settings WHERE setting_key = 'members_open'",
+        one=True,
+    )
+    return bool(row and row.get("setting_value") == "1")
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -151,6 +174,11 @@ def login_required(view):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "請先登入"}), 401
             return redirect(url_for("login"))
+        if session.get("username") != "admin" and not members_are_open():
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "管理員尚未開放此平台。"}), 403
+            return redirect(url_for("login", closed=1))
         return view(*args, **kwargs)
     return wrapped
 
@@ -210,7 +238,7 @@ def money_label(row):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    error = ""
+    error = "管理員尚未開放此平台。" if request.args.get("closed") else ""
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
@@ -235,9 +263,19 @@ def login():
             if expired:
                 error = "此會員已過期。"
             elif check_password_hash(user["password_hash"], password):
-                session.permanent = True
-                session["username"] = username
-                return redirect(url_for("desk"))
+                if username != "admin":
+                    try:
+                        ensure_tables()
+                        opened = members_are_open()
+                    except Exception:
+                        opened = False
+                    if not opened:
+                        error = "管理員尚未開放此平台。"
+                        user = None
+                if user:
+                    session.permanent = True
+                    session["username"] = username
+                    return redirect(url_for("desk"))
             else:
                 error = "帳號或密碼不正確。"
         elif not error:
@@ -287,13 +325,39 @@ def add_supplier():
     return jsonify({"ok": True, "phone": phone, "name": name})
 
 
+@app.route("/api/suppliers", methods=["DELETE"])
+@login_required
+def remove_supplier():
+    phone = (request.args.get("phone") or "").strip()
+    if not phone:
+        return jsonify({"error": "請指定要刪除的供應商。"}), 400
+    execute("DELETE FROM formatter_suppliers WHERE phone = %s", (phone,))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/access", methods=["GET", "POST"])
+@login_required
+def member_access():
+    if session.get("username") != "admin":
+        return jsonify({"error": "只有管理員可以開關。"}), 403
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        value = "1" if payload.get("open") else "0"
+        execute(
+            """
+            INSERT INTO formatter_settings (setting_key, setting_value)
+            VALUES ('members_open', %s)
+            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
+            """,
+            (value,),
+        )
+    return jsonify({"open": members_are_open()})
+
+
 @app.route("/api/quotes")
 @login_required
 def quotes():
     phone = (request.args.get("phone") or "").strip()
-    days = request.args.get("days", "30")
-    days = days if days in {"7", "30", "90"} else "30"
-    since = (datetime.now(HK) - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
     supplier = query(
         "SELECT phone, display_name, aliases FROM formatter_suppliers WHERE phone = %s",
         (phone,),
@@ -306,10 +370,10 @@ def quotes():
         SELECT DISTINCT ON (upper(model_no))
             brand, series, model_no, condition, prod_date, price_hkd, price_display, details, raw_text, timestamp
         FROM parsed_watches
-        WHERE sender = ANY(%s) AND timestamp >= %s AND COALESCE(model_no, '') <> ''
+        WHERE sender = ANY(%s) AND COALESCE(model_no, '') <> ''
         ORDER BY upper(model_no), timestamp DESC
         """,
-        (supplier_keys(supplier), since),
+        (supplier_keys(supplier),),
     )
     grouped = {}
     for row in rows:
