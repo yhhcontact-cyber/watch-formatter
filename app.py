@@ -304,7 +304,7 @@ def quotes():
     rows = query(
         """
         SELECT DISTINCT ON (upper(model_no))
-            brand, series, model_no, condition, prod_date, price_hkd, price_display, details, timestamp
+            brand, series, model_no, condition, prod_date, price_hkd, price_display, details, raw_text, timestamp
         FROM parsed_watches
         WHERE sender = ANY(%s) AND timestamp >= %s AND COALESCE(model_no, '') <> ''
         ORDER BY upper(model_no), timestamp DESC
@@ -323,6 +323,7 @@ def quotes():
             "prod_date": row.get("prod_date") or "",
             "price": money_label(row),
             "time": row.get("timestamp") or "",
+            "raw": (row.get("raw_text") or "").strip(),
             "line": formatter_line(row),
         }
         grouped.setdefault(brand, []).append(item)

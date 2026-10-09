@@ -16,7 +16,8 @@
   .days button.active { background: #d7b15e; color: #1c2430; }
   main { display: grid; grid-template-columns: 260px minmax(0, 1fr) 380px; gap: 12px; padding: 12px; align-items: start; }
   section { background: white; border-radius: 14px; padding: 12px; min-height: 240px; }
-  h2 { margin: 0 0 10px; font-size: 15px; }
+  h2 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .step { width: 22px; height: 22px; border-radius: 50%; background: #17202b; color: white; display: inline-grid; place-items: center; font-size: 12px; flex: none; }
   .supplier { width: 100%; text-align: left; border: 1px solid #e4e8ee; background: #f8fafb; border-radius: 10px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
   .supplier strong { display: block; }
   .supplier span { color: #667384; font-size: 12px; }
@@ -25,6 +26,7 @@
   .brand h3 { margin: 0 0 6px; font-size: 14px; color: #178a62; }
   .item { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; padding: 7px 0; border-bottom: 1px solid #eef2f6; font-size: 13px; }
   .item b { font-size: 14px; }
+  .raw { white-space: pre-wrap; word-break: break-word; }
   .muted { color: #667384; }
   textarea, .output { width: 100%; min-height: 180px; border: 1px solid #d5dbe3; border-radius: 8px; padding: 10px; font: 13px/1.5 Consolas, "Courier New", monospace; }
   .output { background: #f7f8fa; white-space: pre-wrap; }
@@ -47,7 +49,7 @@
 </header>
 <main>
   <section>
-    <h2>指定供應商</h2>
+    <h2><span class="step">1</span>指定供應商</h2>
     <div id="supplierList"></div>
     <form class="add" id="addSupplier">
       <h2>加入供應商</h2>
@@ -57,15 +59,16 @@
     </form>
   </section>
   <section class="quotes">
-    <h2 id="quoteTitle">選擇左邊一位供應商</h2>
+    <h2><span class="step">2</span><span id="quoteTitle">選擇左邊一位供應商</span></h2>
     <div class="row">
       <button type="button" id="selectAll">全選</button>
+      <button type="button" id="copyRaw">複製原文</button>
       <button type="button" id="sendTool">放入整理工具</button>
     </div>
     <div id="quoteBoard"></div>
   </section>
   <section class="tool">
-    <h2>名錶資料自動排列</h2>
+    <h2><span class="step">3</span>名錶資料自動排列</h2>
     <p class="muted">左邊勾選的報價會變成整理工具的原始行。整理後可以存檔。</p>
     <textarea id="inputData" placeholder="也可以直接貼上未整理的報價..."></textarea>
     <div class="row">
@@ -119,8 +122,8 @@ async function loadQuotes(phone) {
         const index = state.items.push(item) - 1;
         return `<label class="item">
           <input type="checkbox" data-index="${index}" checked>
-          <span><b>${esc(item.model)}</b><br><span class="muted">${esc(item.series)} ${esc(item.prod_date)} ${esc(item.condition)}</span></span>
-          <span>${esc(item.price)}</span>
+          <span class="raw">${esc(item.raw || item.line)}</span>
+          <span class="muted">${esc(item.model)}<br>${esc(item.price)}</span>
         </label>`;
       }).join("")}
     </div>
@@ -144,10 +147,26 @@ document.getElementById("selectAll").onclick = () => {
   boxes.forEach(box => { box.checked = check; });
 };
 
-document.getElementById("sendTool").onclick = () => {
-  const chosen = [...document.querySelectorAll("#quoteBoard input:checked")]
+function chosenItems() {
+  return [...document.querySelectorAll("#quoteBoard input:checked")]
     .map(box => state.items[Number(box.dataset.index)])
     .filter(Boolean);
+}
+
+document.getElementById("copyRaw").onclick = async () => {
+  const text = chosenItems().map(item => item.raw || item.line).filter(Boolean).join("\n");
+  const status = document.getElementById("status");
+  if (!text) { status.textContent = "請先勾選報價。"; return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    status.textContent = "已複製原文。";
+  } catch (err) {
+    status.textContent = "瀏覽器沒有允許複製，請再按一次。";
+  }
+};
+
+document.getElementById("sendTool").onclick = () => {
+  const chosen = chosenItems();
   if (!chosen.length) { document.getElementById("status").textContent = "請先勾選報價。"; return; }
   const lines = [];
   let header = "";
