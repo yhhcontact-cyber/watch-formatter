@@ -10,15 +10,19 @@
   body { margin: 0; background: #e7ebf0; color: #1c2430; font-family: "Segoe UI", "PingFang HK", sans-serif; }
   header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px; background: #17202b; color: white; }
   header h1 { margin: 0; font-size: 18px; font-weight: 700; }
-  header a { color: #d7e0ea; font-size: 13px; }
-  .days { display: flex; gap: 6px; }
-  .days button, .tool button, .quotes button, .add button { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
-  .days button.active { background: #d7b15e; color: #1c2430; }
-  main { display: grid; grid-template-columns: 260px minmax(0, 1fr) 380px; gap: 12px; padding: 12px; align-items: start; }
+  header a, header label { color: #d7e0ea; font-size: 13px; }
+  header label { display: flex; align-items: center; gap: 6px; }
+  .tool button, .quotes button, .add button, .remove { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
+  .remove { background: #f3f4f6; color: #9f2d2d; padding: 0 10px; }
+  main { display: grid; grid-template-columns: 260px 8px minmax(180px, 1fr) 8px 380px; gap: 0; padding: 12px; align-items: start; }
+  .split { cursor: col-resize; border-radius: 8px; }
+  .split:hover { background: #c5ced8; }
   section { background: white; border-radius: 14px; padding: 12px; min-height: 240px; }
   h2 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
   .step { width: 22px; height: 22px; border-radius: 50%; background: #17202b; color: white; display: inline-grid; place-items: center; font-size: 12px; flex: none; }
-  .supplier { width: 100%; text-align: left; border: 1px solid #e4e8ee; background: #f8fafb; border-radius: 10px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
+  .supplier { width: 100%; text-align: left; border: 1px solid #e4e8ee; background: #f8fafb; border-radius: 10px; padding: 10px; cursor: pointer; }
+  .supplier-row { display: flex; gap: 6px; align-items: stretch; margin-bottom: 8px; }
+  .supplier-row .supplier { flex: 1; }
   .supplier strong { display: block; }
   .supplier span { color: #667384; font-size: 12px; }
   .supplier.selected { border-color: #178a62; background: #f1faf6; }
@@ -34,20 +38,21 @@
   .add input { width: 100%; margin-bottom: 6px; border: 1px solid #d5dbe3; border-radius: 8px; padding: 8px; }
   .archive { display: block; width: 100%; text-align: left; border: 0; background: #f6f8fa; border-radius: 8px; padding: 8px; margin-top: 6px; cursor: pointer; }
   .status { min-height: 18px; color: #9f2d2d; font-size: 13px; }
-  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 980px) {
+    main { grid-template-columns: 1fr; }
+    .split { display: none; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>名錶供應商整理台</h1>
-  <div class="days">
-    <button type="button" data-days="7">7 日</button>
-    <button type="button" data-days="30" class="active">30 日</button>
-    <button type="button" data-days="90">90 日</button>
-  </div>
+  {% if username == 'admin' %}
+  <label><input type="checkbox" id="memberOpen"> 開放給會員</label>
+  {% endif %}
   <div>{{ username }} · <a href="{{ url_for('logout') }}">登出</a></div>
 </header>
-<main>
+<main id="board">
   <section>
     <h2><span class="step">1</span>指定供應商</h2>
     <div id="supplierList"></div>
@@ -58,6 +63,7 @@
       <button type="submit">加入</button>
     </form>
   </section>
+  <div class="split" data-split="left"></div>
   <section class="quotes">
     <h2><span class="step">2</span><span id="quoteTitle">選擇左邊一位供應商</span></h2>
     <div class="row">
@@ -67,6 +73,7 @@
     </div>
     <div id="quoteBoard"></div>
   </section>
+  <div class="split" data-split="right"></div>
   <section class="tool">
     <h2><span class="step">3</span>名錶資料自動排列</h2>
     <p class="muted">左邊勾選的報價會變成整理工具的原始行。整理後可以存檔。</p>
@@ -84,31 +91,46 @@
 </main>
 <script src="{{ url_for('static', filename='formatter.js') }}"></script>
 <script>
-const state = { days: "30", phone: "", name: "", items: [] };
+const state = { phone: "", name: "", items: [] };
 
 function esc(value) {
   return String(value || "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 }
 
 async function loadSuppliers() {
-  const res = await fetch("/api/suppliers?days=" + state.days);
-  if (res.status === 401) { location.href = "/login"; return; }
+  const res = await fetch("/api/suppliers");
+  if (res.status === 401 || res.status === 403) { location.href = "/login"; return; }
   const data = await res.json();
   const box = document.getElementById("supplierList");
   box.innerHTML = data.suppliers.map(person => `
-    <button type="button" class="supplier${person.phone === state.phone ? " selected" : ""}" data-phone="${esc(person.phone)}">
-      <strong>${esc(person.name)}</strong>
-      <span>${esc(person.phone)}</span>
-    </button>
+    <div class="supplier-row">
+      <button type="button" class="supplier${person.phone === state.phone ? " selected" : ""}" data-phone="${esc(person.phone)}">
+        <strong>${esc(person.name)}</strong>
+        <span>${esc(person.phone)}</span>
+      </button>
+      <button type="button" class="remove" data-phone="${esc(person.phone)}" data-name="${esc(person.name)}">刪除</button>
+    </div>
   `).join("");
   box.querySelectorAll(".supplier").forEach(button => {
     button.onclick = () => loadQuotes(button.dataset.phone);
+  });
+  box.querySelectorAll(".remove").forEach(button => {
+    button.onclick = async () => {
+      if (!confirm("刪除「" + button.dataset.name + "」？其他會員也不會再看到這位供應商。")) return;
+      const res = await fetch("/api/suppliers?phone=" + encodeURIComponent(button.dataset.phone), { method: "DELETE" });
+      if (res.ok && state.phone === button.dataset.phone) {
+        state.phone = "";
+        document.getElementById("quoteBoard").innerHTML = "";
+        document.getElementById("quoteTitle").textContent = "選擇左邊一位供應商";
+      }
+      loadSuppliers();
+    };
   });
 }
 
 async function loadQuotes(phone) {
   state.phone = phone;
-  const res = await fetch("/api/quotes?phone=" + encodeURIComponent(phone) + "&days=" + state.days);
+  const res = await fetch("/api/quotes?phone=" + encodeURIComponent(phone));
   const data = await res.json();
   state.name = data.name || "";
   state.items = [];
@@ -123,23 +145,13 @@ async function loadQuotes(phone) {
         return `<label class="item">
           <input type="checkbox" data-index="${index}" checked>
           <span class="raw">${esc(item.raw || item.line)}</span>
-          <span class="muted">${esc(item.model)}<br>${esc(item.price)}</span>
+          <span class="muted">${esc(item.time)}<br>${esc(item.model)} ${esc(item.price)}</span>
         </label>`;
       }).join("")}
     </div>
-  `).join("") || "<p class='muted'>這段期間沒有報價。</p>";
+  `).join("") || "<p class='muted'>沒有報價。</p>";
   loadSuppliers();
 }
-
-document.querySelectorAll(".days button").forEach(button => {
-  button.onclick = () => {
-    document.querySelectorAll(".days button").forEach(item => item.classList.remove("active"));
-    button.classList.add("active");
-    state.days = button.dataset.days;
-    loadSuppliers();
-    if (state.phone) loadQuotes(state.phone);
-  };
-});
 
 document.getElementById("selectAll").onclick = () => {
   const boxes = [...document.querySelectorAll("#quoteBoard input")];
@@ -234,6 +246,57 @@ document.getElementById("addSupplier").onsubmit = async event => {
 
 loadSuppliers();
 loadArchives();
+
+const board = document.getElementById("board");
+function readCols() {
+  try { return JSON.parse(localStorage.getItem("formatter-cols")) || { left: 260, right: 380 }; }
+  catch (err) { return { left: 260, right: 380 }; }
+}
+function applyCols(cols) {
+  const left = Math.max(180, Math.min(cols.left, 520));
+  const right = Math.max(240, Math.min(cols.right, 640));
+  cols.left = left;
+  cols.right = right;
+  board.style.gridTemplateColumns = left + "px 8px minmax(180px,1fr) 8px " + right + "px";
+}
+applyCols(readCols());
+document.querySelectorAll(".split").forEach(bar => {
+  bar.onpointerdown = event => {
+    event.preventDefault();
+    const cols = readCols();
+    const startX = event.clientX;
+    const startLeft = cols.left;
+    const startRight = cols.right;
+    const side = bar.dataset.split;
+    function move(ev) {
+      const dx = ev.clientX - startX;
+      cols.left = side === "left" ? startLeft + dx : startLeft;
+      cols.right = side === "right" ? startRight - dx : startRight;
+      applyCols(cols);
+    }
+    function up() {
+      localStorage.setItem("formatter-cols", JSON.stringify(cols));
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    }
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+});
+
+const memberOpen = document.getElementById("memberOpen");
+if (memberOpen) {
+  fetch("/api/access").then(res => res.json()).then(data => { memberOpen.checked = !!data.open; });
+  memberOpen.onchange = async () => {
+    const res = await fetch("/api/access", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ open: memberOpen.checked })
+    });
+    const data = await res.json();
+    document.getElementById("status").textContent = data.error || (memberOpen.checked ? "已開放給會員。" : "已關閉會員進入。");
+  };
+}
 </script>
 </body>
 </html>
