@@ -43,6 +43,11 @@
   .supplier strong { display: block; font-size: 13px; }
   .supplier span { color: #667384; font-size: 12px; }
   .supplier.selected { border-color: #178a62; background: #f1faf6; }
+  .edit-btn, .edit-save, .edit-cancel { border: 0; background: transparent; color: #178a62; cursor: pointer; font-size: 12px; font-weight: 700; padding: 0 2px; }
+  .edit-cancel { color: #9f2d2d; }
+  .supplier-edit { display: flex; gap: 4px; align-items: center; }
+  .supplier-edit input { width: 108px; border: 1px solid #d5dbe3; border-radius: 6px; padding: 4px 6px; }
+  .who { margin-left: 8px; color: #178a62; font-weight: 700; }
   .brand { margin-top: 14px; }
   .brand h3 { margin: 0 0 6px; font-size: 14px; color: #178a62; }
   .item { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; padding: 7px 0; border-bottom: 1px solid #eef2f6; font-size: 13px; }
@@ -106,10 +111,11 @@
   <div class="split-row" id="supplierSplit"></div>
   <div id="panes">
   <section class="quotes">
-    <h2><span class="step">2</span><span id="quoteTitle">選擇上面一位供應商</span></h2>
+    <h2><span class="step">2</span><span id="quoteTitle">選擇上面的供應商，可連續加入</span></h2>
     <div class="row">
       <button type="button" id="selectAll">全選</button>
       <button type="button" id="copyRaw">複製原文</button>
+      <button type="button" id="downloadCsv">下載 CSV</button>
       <button type="button" id="sendTool">放入整理工具</button>
     </div>
     <div id="quoteBoard"></div>
@@ -133,7 +139,7 @@
 </main>
 <script src="{{ url_for('static', filename='formatter.js') }}"></script>
 <script>
-const state = { phone: "", name: "", items: [] };
+const state = { picked: [], items: [] };
 
 function esc(value) {
   return String(value || "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
@@ -144,19 +150,134 @@ async function loadSuppliers() {
   if (res.status === 401 || res.status === 403) { location.href = "/login"; return; }
   const data = await res.json();
   const box = document.getElementById("supplierList");
+  const picked = new Set(state.picked.map(person => person.phone));
   box.innerHTML = data.suppliers.map(person => `
-    <div class="supplier-row">
+    <div class="supplier-row" data-phone="${esc(person.phone)}">
       <input type="checkbox" class="supplier-check" data-phone="${esc(person.phone)}" data-name="${esc(person.name)}">
-      <button type="button" class="supplier${person.phone === state.phone ? " selected" : ""}" data-phone="${esc(person.phone)}">
+      <button type="button" class="supplier${picked.has(person.phone) ? " selected" : ""}" data-phone="${esc(person.phone)}" data-name="${esc(person.name)}">
         <strong>${esc(person.name)}</strong>
         <span>${esc(person.phone)}</span>
       </button>
+      <button type="button" class="edit-btn">編輯</button>
     </div>
   `).join("");
-  box.querySelectorAll(".supplier").forEach(button => {
-    button.onclick = () => loadQuotes(button.dataset.phone);
+  box.querySelectorAll(".supplier-row").forEach(row => {
+    const button = row.querySelector(".supplier");
+    button.onclick = () => toggleSupplier(button.dataset.phone, button.dataset.name);
+    row.querySelector(".edit-btn").onclick = event => {
+      event.stopPropagation();
+      beginEdit(row, button.dataset.phone, button.dataset.name);
+    };
   });
 }
+
+function beginEdit(row, phone, name) {
+  row.innerHTML = `
+    <form class="supplier-edit">
+      <input name="name" value="${esc(name)}" required>
+      <input name="phone" value="${esc(phone)}" required>
+      <button type="submit" class="edit-save">儲存</button>
+      <button type="button" class="edit-cancel">取消</button>
+    </form>
+  `;
+  row.querySelector(".edit-cancel").onclick = () => loadSuppliers();
+  row.querySelector("form").onsubmit = async event => {
+    event.preventDefault();
+    const form = event.target;
+    const status = document.getElementById("status");
+    const res = await fetch("/api/suppliers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, name: form.name.value, new_phone: form.phone.value })
+    });
+    const data = await res.json();
+    status.textContent = data.error || "已更新供應商。";
+    if (!res.ok) return;
+    state.picked.forEach(person => {
+      if (person.phone === phone) {
+        person.phone = data.phone;
+        person.name = data.name;
+      }
+    });
+    state.items.forEach(item => {
+      if (item.phone === phone) {
+        item.phone = data.phone;
+        item.supplier = data.name;
+      }
+    });
+    renderQuotes();
+    loadSuppliers();
+  };
+}
+
+function renderQuotes() {
+  const title = document.getElementById("quoteTitle");
+  const board = document.getElementById("quoteBoard");
+  const names = state.picked.map(person => person.name);
+  if (!state.picked.length) {
+    title.textContent = "選擇上面的供應商，可連續加入";
+    board.innerHTML = "";
+    return;
+  }
+  const label = names.length > 3 ? names.length + " 位供應商" : names.join("、");
+  title.textContent = label + " · " + state.items.length + " 款 · 24小時內";
+  if (!state.items.length) {
+    board.innerHTML = "<p class='muted'>所選供應商過去 24 小時沒有清單。</p>";
+    return;
+  }
+  const groups = [];
+  const indexByBrand = {};
+  state.items.forEach((item, index) => {
+    const brand = item.brand || "未分類";
+    if (!(brand in indexByBrand)) {
+      indexByBrand[brand] = groups.length;
+      groups.push({ brand, items: [] });
+    }
+    groups[indexByBrand[brand]].items.push({ item, index });
+  });
+  board.innerHTML = groups.map(group => `
+    <div class="brand">
+      <h3>${esc(group.brand)} · ${group.items.length}</h3>
+      ${group.items.map(({ item, index }) => `<label class="item">
+          <input type="checkbox" data-index="${index}" checked>
+          <span class="raw">${esc(item.raw || item.line)}<span class="who">${esc(item.supplier)}</span><span class="posted">發報時間 ${esc(item.time)}</span></span>
+        </label>`).join("")}
+    </div>
+  `).join("");
+}
+
+async function toggleSupplier(phone, name) {
+  const status = document.getElementById("status");
+  if (toggleSupplier.busy.has(phone)) return;
+  const existing = state.picked.findIndex(person => person.phone === phone);
+  if (existing >= 0) {
+    state.picked.splice(existing, 1);
+    state.items = state.items.filter(item => item.phone !== phone);
+    status.textContent = "";
+    renderQuotes();
+    loadSuppliers();
+    return;
+  }
+  toggleSupplier.busy.add(phone);
+  try {
+    const res = await fetch("/api/quotes?phone=" + encodeURIComponent(phone));
+    const data = await res.json();
+    if (!res.ok) {
+      status.textContent = data.error || "讀取清單失敗。";
+      return;
+    }
+    state.picked.push({ phone, name: data.name || name });
+    (data.brands || []).forEach(group => {
+      group.items.forEach(item => state.items.push(item));
+    });
+    status.textContent = "";
+    renderQuotes();
+    loadSuppliers();
+  } finally {
+    toggleSupplier.busy.delete(phone);
+  }
+}
+toggleSupplier.busy = new Set();
 
 document.getElementById("selectSuppliers").onclick = () => {
   const boxes = [...document.querySelectorAll(".supplier-check")];
@@ -176,37 +297,13 @@ document.getElementById("deleteSuppliers").onclick = async () => {
   });
   const data = await res.json();
   status.textContent = data.error || ("已刪除 " + (data.removed || phones.length) + " 位供應商。");
-  if (res.ok && phones.includes(state.phone)) {
-    state.phone = "";
-    document.getElementById("quoteBoard").innerHTML = "";
-    document.getElementById("quoteTitle").textContent = "選擇上面一位供應商";
+  if (res.ok) {
+    state.picked = state.picked.filter(person => !phones.includes(person.phone));
+    state.items = state.items.filter(item => !phones.includes(item.phone));
+    renderQuotes();
+    loadSuppliers();
   }
-  if (res.ok) loadSuppliers();
 };
-
-async function loadQuotes(phone) {
-  state.phone = phone;
-  const res = await fetch("/api/quotes?phone=" + encodeURIComponent(phone));
-  const data = await res.json();
-  state.name = data.name || "";
-  state.items = [];
-  const total = (data.brands || []).reduce((sum, group) => sum + group.items.length, 0);
-  document.getElementById("quoteTitle").textContent = (data.name || "供應商") + " · " + total + " 款 · 24小時內";
-  const quoteBoard = document.getElementById("quoteBoard");
-  quoteBoard.innerHTML = (data.brands || []).map(group => `
-    <div class="brand">
-      <h3>${esc(group.brand)} · ${group.items.length}</h3>
-      ${group.items.map(item => {
-        const index = state.items.push(item) - 1;
-        return `<label class="item">
-          <input type="checkbox" data-index="${index}" checked>
-          <span class="raw">${esc(item.raw || item.line)}<span class="posted">發報時間 ${esc(item.time)}</span></span>
-        </label>`;
-      }).join("")}
-    </div>
-  `).join("") || "<p class='muted'>這位供應商過去 24 小時沒有清單。</p>";
-  loadSuppliers();
-}
 
 document.getElementById("selectAll").onclick = () => {
   const boxes = [...document.querySelectorAll("#quoteBoard input")];
@@ -222,7 +319,7 @@ function chosenItems() {
 
 document.getElementById("copyRaw").onclick = async () => {
   const text = chosenItems().map(item => {
-    const raw = item.raw || item.line || "";
+    const raw = (item.raw || item.line || "") + (item.supplier ? " " + item.supplier : "");
     return item.time ? raw + "\n發報時間 " + item.time : raw;
   }).filter(Boolean).join("\n");
   const status = document.getElementById("status");
@@ -233,6 +330,21 @@ document.getElementById("copyRaw").onclick = async () => {
   } catch (err) {
     status.textContent = "瀏覽器沒有允許複製，請再按一次。";
   }
+};
+
+document.getElementById("downloadCsv").onclick = () => {
+  const status = document.getElementById("status");
+  const rows = state.items;
+  if (!rows.length) { status.textContent = "還沒有可下載的產品。"; return; }
+  const header = ["供應商", "品牌", "型號", "原文", "發報時間", "價格"];
+  const body = rows.map(item => [item.supplier, item.brand, item.model, item.raw, item.time, item.price]);
+  const csv = "\uFEFF" + [header, ...body].map(row => row.map(value => `"${String(value || "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  link.download = "綜合產品.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
+  status.textContent = "已下載 " + rows.length + " 款。";
 };
 
 document.getElementById("sendTool").onclick = () => {
@@ -258,8 +370,8 @@ document.getElementById("saveSheet").onclick = async () => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      supplier_phone: state.phone,
-      supplier_name: state.name,
+      supplier_phone: state.picked.map(person => person.phone).join(",").slice(0, 40),
+      supplier_name: state.picked.map(person => person.name).join("、").slice(0, 80),
       source_text: document.getElementById("inputData").value,
       result_text: document.getElementById("outputResult").innerText
     })

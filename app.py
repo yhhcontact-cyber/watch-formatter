@@ -325,17 +325,22 @@ def suppliers():
     return jsonify({"suppliers": people})
 
 
+def clean_phone(value):
+    phone = (value or "").strip().replace(" ", "")
+    digits = phone[1:] if phone.startswith("+") else phone
+    if not digits.isdigit() or not 8 <= len(digits) <= 15:
+        return ""
+    return "+" + digits
+
+
 @app.route("/api/suppliers", methods=["POST"])
 @login_required
 def add_supplier():
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
-    phone = (payload.get("phone") or "").strip().replace(" ", "")
-    digits = phone[1:] if phone.startswith("+") else phone
-    if not name or not digits.isdigit() or not 8 <= len(digits) <= 15:
+    phone = clean_phone(payload.get("phone") or "")
+    if not name or not phone:
         return jsonify({"error": "請填顯示名稱，以及帶國碼的電話。"}), 400
-    if not phone.startswith("+"):
-        phone = "+" + digits
     execute(
         """
         INSERT INTO formatter_suppliers (phone, display_name, aliases)
@@ -345,6 +350,42 @@ def add_supplier():
         (phone, name),
     )
     return jsonify({"ok": True, "phone": phone, "name": name})
+
+
+@app.route("/api/suppliers", methods=["PATCH"])
+@login_required
+def edit_supplier():
+    payload = request.get_json(silent=True) or {}
+    old_phone = clean_phone(payload.get("phone") or "")
+    new_phone = clean_phone(payload.get("new_phone") or payload.get("phone") or "")
+    name = (payload.get("name") or "").strip()
+    if not old_phone or not new_phone or not name:
+        return jsonify({"error": "請填顯示名稱，以及帶國碼的電話。"}), 400
+    current = query(
+        "SELECT phone FROM formatter_suppliers WHERE phone = %s",
+        (old_phone,),
+        one=True,
+    )
+    if not current:
+        return jsonify({"error": "找不到這位供應商"}), 404
+    if new_phone != old_phone:
+        taken = query(
+            "SELECT phone FROM formatter_suppliers WHERE phone = %s",
+            (new_phone,),
+            one=True,
+        )
+        if taken:
+            return jsonify({"error": "這組電話已經有另一位供應商。"}), 409
+        execute(
+            "UPDATE formatter_suppliers SET phone = %s, display_name = %s WHERE phone = %s",
+            (new_phone, name, old_phone),
+        )
+    else:
+        execute(
+            "UPDATE formatter_suppliers SET display_name = %s WHERE phone = %s",
+            (name, old_phone),
+        )
+    return jsonify({"ok": True, "phone": new_phone, "name": name})
 
 
 @app.route("/api/suppliers", methods=["DELETE"])
@@ -442,6 +483,8 @@ def quotes():
             "time": row.get("timestamp") or "",
             "raw": (row.get("raw_text") or "").strip(),
             "line": formatter_line(row),
+            "supplier": supplier["display_name"],
+            "phone": supplier["phone"],
         }
         if brand not in grouped:
             grouped[brand] = []
