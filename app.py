@@ -146,6 +146,25 @@ def ensure_tables():
                 ON CONFLICT (setting_key) DO NOTHING
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS formatter_members (
+                    username TEXT PRIMARY KEY
+                )
+                """
+            )
+            cur.execute("SELECT COUNT(*) FROM formatter_members")
+            member_count = cur.fetchone()[0]
+            cur.execute("SELECT setting_value FROM formatter_settings WHERE setting_key = 'members_open'")
+            opened = cur.fetchone()
+            if member_count == 0 and opened and opened[0] == "1":
+                cur.execute(
+                    """
+                    INSERT INTO formatter_members (username)
+                    SELECT username FROM users WHERE username <> 'admin'
+                    ON CONFLICT (username) DO NOTHING
+                    """
+                )
             cur.executemany(
                 """
                 INSERT INTO formatter_suppliers (phone, display_name, aliases)
@@ -159,12 +178,15 @@ def ensure_tables():
         conn.close()
 
 
-def members_are_open():
+def member_is_allowed(username):
+    if username == "admin":
+        return True
     row = query(
-        "SELECT setting_value FROM formatter_settings WHERE setting_key = 'members_open'",
+        "SELECT username FROM formatter_members WHERE username = %s",
+        (username,),
         one=True,
     )
-    return bool(row and row.get("setting_value") == "1")
+    return bool(row)
 
 
 def login_required(view):
@@ -174,10 +196,10 @@ def login_required(view):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "請先登入"}), 401
             return redirect(url_for("login"))
-        if session.get("username") != "admin" and not members_are_open():
+        if session.get("username") != "admin" and not member_is_allowed(session.get("username")):
             session.clear()
             if request.path.startswith("/api/"):
-                return jsonify({"error": "管理員尚未開放此平台。"}), 403
+                return jsonify({"error": "管理員尚未開放你的帳號。"}), 403
             return redirect(url_for("login", closed=1))
         return view(*args, **kwargs)
     return wrapped
@@ -238,7 +260,7 @@ def money_label(row):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    error = "管理員尚未開放此平台。" if request.args.get("closed") else ""
+    error = "管理員尚未開放你的帳號。" if request.args.get("closed") else ""
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
@@ -266,11 +288,11 @@ def login():
                 if username != "admin":
                     try:
                         ensure_tables()
-                        opened = members_are_open()
+                        opened = member_is_allowed(username)
                     except Exception:
                         opened = False
                     if not opened:
-                        error = "管理員尚未開放此平台。"
+                        error = "管理員尚未開放你的帳號。"
                         user = None
                 if user:
                     session.permanent = True
@@ -328,30 +350,57 @@ def add_supplier():
 @app.route("/api/suppliers", methods=["DELETE"])
 @login_required
 def remove_supplier():
-    phone = (request.args.get("phone") or "").strip()
-    if not phone:
-        return jsonify({"error": "請指定要刪除的供應商。"}), 400
-    execute("DELETE FROM formatter_suppliers WHERE phone = %s", (phone,))
-    return jsonify({"ok": True})
+    payload = request.get_json(silent=True) or {}
+    phones = [str(phone).strip() for phone in (payload.get("phones") or []) if str(phone).strip()]
+    if not phones:
+        one = (request.args.get("phone") or "").strip()
+        if one:
+            phones = [one]
+    if not phones:
+        return jsonify({"error": "請先勾選要刪除的供應商。"}), 400
+    execute("DELETE FROM formatter_suppliers WHERE phone = ANY(%s)", (phones,))
+    return jsonify({"ok": True, "removed": len(phones)})
 
 
 @app.route("/api/access", methods=["GET", "POST"])
 @login_required
 def member_access():
     if session.get("username") != "admin":
-        return jsonify({"error": "只有管理員可以開關。"}), 403
+        return jsonify({"error": "只有管理員可以指定會員。"}), 403
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
-        value = "1" if payload.get("open") else "0"
-        execute(
-            """
-            INSERT INTO formatter_settings (setting_key, setting_value)
-            VALUES ('members_open', %s)
-            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
-            """,
-            (value,),
-        )
-    return jsonify({"open": members_are_open()})
+        names = [str(name).strip() for name in (payload.get("usernames") or []) if str(name).strip() and str(name).strip() != "admin"]
+        conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM formatter_members")
+                if names:
+                    cur.execute(
+                        """
+                        INSERT INTO formatter_members (username)
+                        SELECT username FROM users
+                        WHERE username = ANY(%s) AND username <> 'admin'
+                        """,
+                        (names,),
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+    rows = query(
+        """
+        SELECT users.username,
+               EXISTS (
+                   SELECT 1 FROM formatter_members
+                   WHERE formatter_members.username = users.username
+               ) AS allowed
+        FROM users
+        WHERE users.username <> 'admin'
+        ORDER BY users.username
+        """
+    )
+    return jsonify({
+        "members": [{"username": row["username"], "allowed": bool(row["allowed"])} for row in rows]
+    })
 
 
 @app.route("/api/quotes")

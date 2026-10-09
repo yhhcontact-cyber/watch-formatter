@@ -8,10 +8,12 @@
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #e7ebf0; color: #1c2430; font-family: "Segoe UI", "PingFang HK", sans-serif; }
-  header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px; background: #17202b; color: white; }
+  header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px; background: #17202b; color: white; position: relative; }
+  #memberToggle { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
   header h1 { margin: 0; font-size: 18px; font-weight: 700; }
   header a, header label { color: #d7e0ea; font-size: 13px; }
-  header label { display: flex; align-items: center; gap: 6px; }
+  .member-panel { position: absolute; top: 58px; right: 18px; z-index: 5; width: min(320px, calc(100% - 24px)); max-height: 320px; overflow: auto; background: white; color: #1c2430; border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(20, 30, 40, .16); }
+  .member-panel label { display: flex; gap: 8px; align-items: center; color: #1c2430; padding: 4px 0; }
   .tool button, .quotes button, .add button, .remove { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
   .remove { background: #f3f4f6; color: #9f2d2d; padding: 0 10px; }
   main { display: grid; grid-template-columns: 260px 8px minmax(180px, 1fr) 8px 380px; gap: 0; padding: 12px; align-items: start; }
@@ -48,13 +50,26 @@
 <header>
   <h1>名錶供應商整理台</h1>
   {% if username == 'admin' %}
-  <label><input type="checkbox" id="memberOpen"> 開放給會員</label>
+  <div>
+    <button type="button" id="memberToggle">指定可進入的會員</button>
+    <div id="memberPanel" class="member-panel" hidden>
+      <div class="row">
+        <button type="button" id="memberAll">全選</button>
+        <button type="button" id="memberSave">儲存</button>
+      </div>
+      <div id="memberList"></div>
+    </div>
+  </div>
   {% endif %}
   <div>{{ username }} · <a href="{{ url_for('logout') }}">登出</a></div>
 </header>
 <main id="board">
   <section>
     <h2><span class="step">1</span>指定供應商</h2>
+    <div class="row">
+      <button type="button" id="selectSuppliers">全選</button>
+      <button type="button" id="deleteSuppliers">刪除所選</button>
+    </div>
     <div id="supplierList"></div>
     <form class="add" id="addSupplier">
       <h2>加入供應商</h2>
@@ -104,29 +119,43 @@ async function loadSuppliers() {
   const box = document.getElementById("supplierList");
   box.innerHTML = data.suppliers.map(person => `
     <div class="supplier-row">
+      <input type="checkbox" class="supplier-check" data-phone="${esc(person.phone)}" data-name="${esc(person.name)}">
       <button type="button" class="supplier${person.phone === state.phone ? " selected" : ""}" data-phone="${esc(person.phone)}">
         <strong>${esc(person.name)}</strong>
         <span>${esc(person.phone)}</span>
       </button>
-      <button type="button" class="remove" data-phone="${esc(person.phone)}" data-name="${esc(person.name)}">刪除</button>
     </div>
   `).join("");
   box.querySelectorAll(".supplier").forEach(button => {
     button.onclick = () => loadQuotes(button.dataset.phone);
   });
-  box.querySelectorAll(".remove").forEach(button => {
-    button.onclick = async () => {
-      if (!confirm("刪除「" + button.dataset.name + "」？其他會員也不會再看到這位供應商。")) return;
-      const res = await fetch("/api/suppliers?phone=" + encodeURIComponent(button.dataset.phone), { method: "DELETE" });
-      if (res.ok && state.phone === button.dataset.phone) {
-        state.phone = "";
-        document.getElementById("quoteBoard").innerHTML = "";
-        document.getElementById("quoteTitle").textContent = "選擇左邊一位供應商";
-      }
-      loadSuppliers();
-    };
-  });
 }
+
+document.getElementById("selectSuppliers").onclick = () => {
+  const boxes = [...document.querySelectorAll(".supplier-check")];
+  const check = boxes.some(box => !box.checked);
+  boxes.forEach(box => { box.checked = check; });
+};
+
+document.getElementById("deleteSuppliers").onclick = async () => {
+  const phones = [...document.querySelectorAll(".supplier-check:checked")].map(box => box.dataset.phone);
+  const status = document.getElementById("status");
+  if (!phones.length) { status.textContent = "請先勾選要刪除的供應商。"; return; }
+  if (!confirm("刪除所選的 " + phones.length + " 位供應商？其他會員也不會再看到。")) return;
+  const res = await fetch("/api/suppliers", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phones })
+  });
+  const data = await res.json();
+  status.textContent = data.error || ("已刪除 " + (data.removed || phones.length) + " 位供應商。");
+  if (res.ok && phones.includes(state.phone)) {
+    state.phone = "";
+    document.getElementById("quoteBoard").innerHTML = "";
+    document.getElementById("quoteTitle").textContent = "選擇左邊一位供應商";
+  }
+  if (res.ok) loadSuppliers();
+};
 
 async function loadQuotes(phone) {
   state.phone = phone;
@@ -284,17 +313,32 @@ document.querySelectorAll(".split").forEach(bar => {
   };
 });
 
-const memberOpen = document.getElementById("memberOpen");
-if (memberOpen) {
-  fetch("/api/access").then(res => res.json()).then(data => { memberOpen.checked = !!data.open; });
-  memberOpen.onchange = async () => {
+const memberToggle = document.getElementById("memberToggle");
+const memberPanel = document.getElementById("memberPanel");
+if (memberToggle && memberPanel) {
+  memberToggle.onclick = async () => {
+    memberPanel.hidden = !memberPanel.hidden;
+    if (memberPanel.hidden) return;
+    const res = await fetch("/api/access");
+    const data = await res.json();
+    document.getElementById("memberList").innerHTML = (data.members || []).map(member => `
+      <label><input type="checkbox" class="member-check" value="${esc(member.username)}" ${member.allowed ? "checked" : ""}> ${esc(member.username)}</label>
+    `).join("") || "<p class='muted'>還沒有其他會員。</p>";
+  };
+  document.getElementById("memberAll").onclick = () => {
+    const boxes = [...document.querySelectorAll(".member-check")];
+    const check = boxes.some(box => !box.checked);
+    boxes.forEach(box => { box.checked = check; });
+  };
+  document.getElementById("memberSave").onclick = async () => {
+    const usernames = [...document.querySelectorAll(".member-check:checked")].map(box => box.value);
     const res = await fetch("/api/access", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ open: memberOpen.checked })
+      body: JSON.stringify({ usernames })
     });
     const data = await res.json();
-    document.getElementById("status").textContent = data.error || (memberOpen.checked ? "已開放給會員。" : "已關閉會員進入。");
+    document.getElementById("status").textContent = data.error || ("已指定 " + usernames.length + " 位會員可以進入。");
   };
 }
 </script>
