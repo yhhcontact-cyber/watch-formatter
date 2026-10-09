@@ -10,6 +10,7 @@
   html, body { height: 100%; }
   body { margin: 0; display: flex; flex-direction: column; overflow: hidden; background: #e7ebf0; color: #1c2430; font-family: "Segoe UI", "PingFang HK", sans-serif; }
   body.resizing { cursor: col-resize; user-select: none; }
+  body.resizing-row { cursor: row-resize; user-select: none; }
   header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px; background: #17202b; color: white; position: relative; }
   #memberToggle { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
   header h1 { margin: 0; font-size: 18px; font-weight: 700; }
@@ -18,25 +19,28 @@
   .member-panel label { display: flex; gap: 8px; align-items: center; color: #1c2430; padding: 4px 0; }
   .tool button, .quotes button, .add button, .remove { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
   .remove { background: #f3f4f6; color: #9f2d2d; padding: 0 10px; }
-  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; }
-  .suppliers { flex: none; overflow: hidden; }
-  .supplier-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0; padding: 12px; }
+  .supplier-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }
   .supplier-head h2, .supplier-head .row { margin: 0; }
-  #supplierList { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; }
+  #supplierList { flex: 1; min-height: 0; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; overflow-x: hidden; overflow-y: auto; padding-top: 8px; }
   .add { display: flex; gap: 8px; align-items: center; margin-left: auto; }
   .add h2 { margin: 0; white-space: nowrap; }
-  .add input { width: 150px; margin: 0; }
+  .add input { width: 140px; margin: 0; }
   #panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 1fr) 14px 420px; align-items: stretch; }
   .split { cursor: col-resize; touch-action: none; position: relative; }
   .split::before { content: ""; position: absolute; top: 16px; bottom: 16px; left: 6px; width: 2px; border-radius: 2px; background: #b7c2ce; }
   .split:hover::before, body.resizing .split::before { background: #178a62; width: 3px; left: 5px; }
+  .split-row { height: 14px; cursor: row-resize; touch-action: none; position: relative; flex: none; }
+  .split-row::before { content: ""; position: absolute; left: 18px; right: 18px; top: 6px; height: 2px; border-radius: 2px; background: #b7c2ce; }
+  .split-row:hover::before, body.resizing-row .split-row::before { background: #178a62; height: 3px; top: 5px; }
   section { background: white; border-radius: 14px; padding: 12px; min-height: 0; overflow: auto; }
+  section.suppliers { display: flex; flex-direction: column; height: 156px; overflow: hidden; padding: 10px 12px 8px; }
   h2 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
   .step { width: 22px; height: 22px; border-radius: 50%; background: #17202b; color: white; display: inline-grid; place-items: center; font-size: 12px; flex: none; }
-  .supplier { width: 100%; text-align: left; border: 1px solid #e4e8ee; background: #f8fafb; border-radius: 10px; padding: 10px; cursor: pointer; }
-  .supplier-row { display: flex; gap: 6px; align-items: stretch; flex: 0 0 210px; }
-  .supplier-row .supplier { flex: 1; }
-  .supplier strong { display: block; }
+  .supplier { width: auto; text-align: left; border: 1px solid #e4e8ee; background: #f8fafb; border-radius: 8px; padding: 4px 8px; cursor: pointer; line-height: 1.25; }
+  .supplier-row { display: flex; gap: 4px; align-items: center; flex: 0 0 auto; width: max-content; max-width: 100%; }
+  .supplier-row .supplier { flex: 0 0 auto; }
+  .supplier strong { display: block; font-size: 13px; }
   .supplier span { color: #667384; font-size: 12px; }
   .supplier.selected { border-color: #178a62; background: #f1faf6; }
   .brand { margin-top: 14px; }
@@ -49,7 +53,7 @@
   textarea, .output { width: 100%; min-height: 180px; border: 1px solid #d5dbe3; border-radius: 8px; padding: 10px; font: 13px/1.5 Consolas, "Courier New", monospace; }
   .output { background: #f7f8fa; white-space: pre-wrap; }
   .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
-  .add input { width: 100%; margin-bottom: 6px; border: 1px solid #d5dbe3; border-radius: 8px; padding: 8px; }
+  .add input { border: 1px solid #d5dbe3; border-radius: 8px; padding: 8px; }
   .archive { display: block; width: 100%; text-align: left; border: 0; background: #f6f8fa; border-radius: 8px; padding: 8px; margin-top: 6px; cursor: pointer; }
   .status { min-height: 18px; color: #9f2d2d; font-size: 13px; }
   @media (max-width: 980px) {
@@ -58,7 +62,9 @@
     #panes { display: block; height: auto; }
     .add { margin-left: 0; }
     .add input { width: 100%; }
-    .split { display: none; }
+    .split, .split-row { display: none; }
+    section.suppliers { height: auto !important; overflow: visible; }
+    #supplierList { overflow: visible; }
     section { min-height: 240px; overflow: visible; margin-bottom: 12px; }
   }
 </style>
@@ -97,6 +103,7 @@
     </div>
     <div id="supplierList"></div>
   </section>
+  <div class="split-row" id="supplierSplit"></div>
   <div id="panes">
   <section class="quotes">
     <h2><span class="step">2</span><span id="quoteTitle">選擇上面一位供應商</span></h2>
@@ -313,7 +320,45 @@ function applyCols(cols) {
   panes.style.gridTemplateColumns = "minmax(280px,1fr) 14px " + cols.right + "px";
 }
 applyCols(readCols());
-window.addEventListener("resize", () => applyCols(readCols()));
+const supplierPane = document.querySelector(".suppliers");
+function readSupplierHeight() {
+  const saved = Number(localStorage.getItem("formatter-supplier-h"));
+  return saved || 156;
+}
+function applySupplierHeight(height) {
+  const board = document.getElementById("board");
+  const max = Math.max(120, (board.clientHeight || 700) - 220);
+  const next = Math.max(92, Math.min(Math.round(height), max));
+  supplierPane.style.height = next + "px";
+  return next;
+}
+applySupplierHeight(readSupplierHeight());
+window.addEventListener("resize", () => {
+  applyCols(readCols());
+  applySupplierHeight(readSupplierHeight());
+});
+const supplierSplit = document.getElementById("supplierSplit");
+supplierSplit.onpointerdown = event => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  try { supplierSplit.setPointerCapture(event.pointerId); } catch (err) {}
+  const startY = event.clientY;
+  const startHeight = supplierPane.getBoundingClientRect().height;
+  document.body.classList.add("resizing-row");
+  function move(ev) {
+    applySupplierHeight(startHeight + (ev.clientY - startY));
+  }
+  function up() {
+    localStorage.setItem("formatter-supplier-h", String(Math.round(supplierPane.getBoundingClientRect().height)));
+    document.body.classList.remove("resizing-row");
+    supplierSplit.removeEventListener("pointermove", move);
+    supplierSplit.removeEventListener("pointerup", up);
+    supplierSplit.removeEventListener("pointercancel", up);
+  }
+  supplierSplit.addEventListener("pointermove", move);
+  supplierSplit.addEventListener("pointerup", up);
+  supplierSplit.addEventListener("pointercancel", up);
+};
 document.querySelectorAll(".split").forEach(bar => {
   bar.onpointerdown = event => {
     if (event.button !== 0) return;
