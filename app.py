@@ -414,17 +414,21 @@ def quotes():
     )
     if not supplier:
         return jsonify({"error": "找不到這位供應商"}), 404
+    cutoff = (datetime.now(HK) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     rows = query(
         """
-        SELECT DISTINCT ON (upper(model_no))
-            brand, series, model_no, condition, prod_date, price_hkd, price_display, details, raw_text, timestamp
+        SELECT id, brand, series, model_no, condition, prod_date, price_hkd, price_display,
+               details, raw_text, timestamp
         FROM parsed_watches
-        WHERE sender = ANY(%s) AND COALESCE(model_no, '') <> ''
-        ORDER BY upper(model_no), timestamp DESC
+        WHERE sender = ANY(%s)
+          AND COALESCE(model_no, '') <> ''
+          AND timestamp >= %s
+        ORDER BY timestamp DESC, id DESC
         """,
-        (supplier_keys(supplier),),
+        (supplier_keys(supplier), cutoff),
     )
     grouped = {}
+    order = []
     for row in rows:
         brand = (row.get("brand") or "未分類").strip() or "未分類"
         item = {
@@ -439,15 +443,15 @@ def quotes():
             "raw": (row.get("raw_text") or "").strip(),
             "line": formatter_line(row),
         }
-        grouped.setdefault(brand, []).append(item)
-    brands = []
-    for brand, items in grouped.items():
-        items.sort(key=lambda item: (item["series"], item["model"]))
-        brands.append({"brand": brand, "items": items})
-    brands.sort(key=lambda group: group["brand"])
+        if brand not in grouped:
+            grouped[brand] = []
+            order.append(brand)
+        grouped[brand].append(item)
+    brands = [{"brand": brand, "items": grouped[brand]} for brand in order]
     return jsonify({
         "phone": supplier["phone"],
         "name": supplier["display_name"],
+        "hours": 24,
         "brands": brands,
     })
 

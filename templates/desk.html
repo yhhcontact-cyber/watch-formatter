@@ -7,7 +7,9 @@
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #e7ebf0; color: #1c2430; font-family: "Segoe UI", "PingFang HK", sans-serif; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; overflow: hidden; background: #e7ebf0; color: #1c2430; font-family: "Segoe UI", "PingFang HK", sans-serif; }
+  body.resizing { cursor: col-resize; user-select: none; }
   header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px; background: #17202b; color: white; position: relative; }
   #memberToggle { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
   header h1 { margin: 0; font-size: 18px; font-weight: 700; }
@@ -16,21 +18,31 @@
   .member-panel label { display: flex; gap: 8px; align-items: center; color: #1c2430; padding: 4px 0; }
   .tool button, .quotes button, .add button, .remove { border: 0; border-radius: 8px; padding: 8px 12px; background: #178a62; color: white; font-weight: 700; cursor: pointer; }
   .remove { background: #f3f4f6; color: #9f2d2d; padding: 0 10px; }
-  main { display: grid; grid-template-columns: 260px 8px minmax(180px, 1fr) 8px 380px; gap: 0; padding: 12px; align-items: start; }
-  .split { cursor: col-resize; border-radius: 8px; }
-  .split:hover { background: #c5ced8; }
-  section { background: white; border-radius: 14px; padding: 12px; min-height: 240px; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+  .suppliers { flex: none; overflow: hidden; }
+  .supplier-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .supplier-head h2, .supplier-head .row { margin: 0; }
+  #supplierList { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; }
+  .add { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+  .add h2 { margin: 0; white-space: nowrap; }
+  .add input { width: 150px; margin: 0; }
+  #panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 1fr) 14px 420px; align-items: stretch; }
+  .split { cursor: col-resize; touch-action: none; position: relative; }
+  .split::before { content: ""; position: absolute; top: 16px; bottom: 16px; left: 6px; width: 2px; border-radius: 2px; background: #b7c2ce; }
+  .split:hover::before, body.resizing .split::before { background: #178a62; width: 3px; left: 5px; }
+  section { background: white; border-radius: 14px; padding: 12px; min-height: 0; overflow: auto; }
   h2 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
   .step { width: 22px; height: 22px; border-radius: 50%; background: #17202b; color: white; display: inline-grid; place-items: center; font-size: 12px; flex: none; }
   .supplier { width: 100%; text-align: left; border: 1px solid #e4e8ee; background: #f8fafb; border-radius: 10px; padding: 10px; cursor: pointer; }
-  .supplier-row { display: flex; gap: 6px; align-items: stretch; margin-bottom: 8px; }
+  .supplier-row { display: flex; gap: 6px; align-items: stretch; flex: 0 0 210px; }
   .supplier-row .supplier { flex: 1; }
   .supplier strong { display: block; }
   .supplier span { color: #667384; font-size: 12px; }
   .supplier.selected { border-color: #178a62; background: #f1faf6; }
   .brand { margin-top: 14px; }
   .brand h3 { margin: 0 0 6px; font-size: 14px; color: #178a62; }
-  .item { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; padding: 7px 0; border-bottom: 1px solid #eef2f6; font-size: 13px; }
+  .item { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; padding: 7px 0; border-bottom: 1px solid #eef2f6; font-size: 13px; }
+  .posted { display: block; margin-top: 2px; color: #667384; }
   .item b { font-size: 14px; }
   .raw { white-space: pre-wrap; word-break: break-word; }
   .muted { color: #667384; }
@@ -41,8 +53,13 @@
   .archive { display: block; width: 100%; text-align: left; border: 0; background: #f6f8fa; border-radius: 8px; padding: 8px; margin-top: 6px; cursor: pointer; }
   .status { min-height: 18px; color: #9f2d2d; font-size: 13px; }
   @media (max-width: 980px) {
-    main { grid-template-columns: 1fr; }
+    body { overflow: auto; }
+    main { display: block; height: auto; }
+    #panes { display: block; height: auto; }
+    .add { margin-left: 0; }
+    .add input { width: 100%; }
     .split { display: none; }
+    section { min-height: 240px; overflow: visible; margin-bottom: 12px; }
   }
 </style>
 </head>
@@ -64,23 +81,25 @@
   <div>{{ username }} · <a href="{{ url_for('logout') }}">登出</a></div>
 </header>
 <main id="board">
-  <section>
-    <h2><span class="step">1</span>指定供應商</h2>
-    <div class="row">
-      <button type="button" id="selectSuppliers">全選</button>
-      <button type="button" id="deleteSuppliers">刪除所選</button>
+  <section class="suppliers">
+    <div class="supplier-head">
+      <h2><span class="step">1</span>指定供應商</h2>
+      <div class="row">
+        <button type="button" id="selectSuppliers">全選</button>
+        <button type="button" id="deleteSuppliers">刪除所選</button>
+      </div>
+      <form class="add" id="addSupplier">
+        <h2>加入供應商</h2>
+        <input name="name" placeholder="顯示名稱" required>
+        <input name="phone" placeholder="+852..." required>
+        <button type="submit">加入</button>
+      </form>
     </div>
     <div id="supplierList"></div>
-    <form class="add" id="addSupplier">
-      <h2>加入供應商</h2>
-      <input name="name" placeholder="顯示名稱" required>
-      <input name="phone" placeholder="+852..." required>
-      <button type="submit">加入</button>
-    </form>
   </section>
-  <div class="split" data-split="left"></div>
+  <div id="panes">
   <section class="quotes">
-    <h2><span class="step">2</span><span id="quoteTitle">選擇左邊一位供應商</span></h2>
+    <h2><span class="step">2</span><span id="quoteTitle">選擇上面一位供應商</span></h2>
     <div class="row">
       <button type="button" id="selectAll">全選</button>
       <button type="button" id="copyRaw">複製原文</button>
@@ -91,7 +110,7 @@
   <div class="split" data-split="right"></div>
   <section class="tool">
     <h2><span class="step">3</span>名錶資料自動排列</h2>
-    <p class="muted">左邊勾選的報價會變成整理工具的原始行。整理後可以存檔。</p>
+    <p class="muted">勾選的報價會變成整理工具的原始行。整理後可以存檔。</p>
     <textarea id="inputData" placeholder="也可以直接貼上未整理的報價..."></textarea>
     <div class="row">
       <button type="button" onclick="processWatchData()">智慧格式化與分類</button>
@@ -103,6 +122,7 @@
     <h2>已存檔</h2>
     <div id="archives"></div>
   </section>
+  </div>
 </main>
 <script src="{{ url_for('static', filename='formatter.js') }}"></script>
 <script>
@@ -152,7 +172,7 @@ document.getElementById("deleteSuppliers").onclick = async () => {
   if (res.ok && phones.includes(state.phone)) {
     state.phone = "";
     document.getElementById("quoteBoard").innerHTML = "";
-    document.getElementById("quoteTitle").textContent = "選擇左邊一位供應商";
+    document.getElementById("quoteTitle").textContent = "選擇上面一位供應商";
   }
   if (res.ok) loadSuppliers();
 };
@@ -164,21 +184,20 @@ async function loadQuotes(phone) {
   state.name = data.name || "";
   state.items = [];
   const total = (data.brands || []).reduce((sum, group) => sum + group.items.length, 0);
-  document.getElementById("quoteTitle").textContent = (data.name || "供應商") + " · " + total + " 款";
-  const board = document.getElementById("quoteBoard");
-  board.innerHTML = (data.brands || []).map(group => `
+  document.getElementById("quoteTitle").textContent = (data.name || "供應商") + " · " + total + " 款 · 24小時內";
+  const quoteBoard = document.getElementById("quoteBoard");
+  quoteBoard.innerHTML = (data.brands || []).map(group => `
     <div class="brand">
       <h3>${esc(group.brand)} · ${group.items.length}</h3>
       ${group.items.map(item => {
         const index = state.items.push(item) - 1;
         return `<label class="item">
           <input type="checkbox" data-index="${index}" checked>
-          <span class="raw">${esc(item.raw || item.line)}</span>
-          <span class="muted">${esc(item.time)}<br>${esc(item.model)} ${esc(item.price)}</span>
+          <span class="raw">${esc(item.raw || item.line)}<span class="posted">發報時間 ${esc(item.time)}</span></span>
         </label>`;
       }).join("")}
     </div>
-  `).join("") || "<p class='muted'>沒有報價。</p>";
+  `).join("") || "<p class='muted'>這位供應商過去 24 小時沒有清單。</p>";
   loadSuppliers();
 }
 
@@ -195,7 +214,10 @@ function chosenItems() {
 }
 
 document.getElementById("copyRaw").onclick = async () => {
-  const text = chosenItems().map(item => item.raw || item.line).filter(Boolean).join("\n");
+  const text = chosenItems().map(item => {
+    const raw = item.raw || item.line || "";
+    return item.time ? raw + "\n發報時間 " + item.time : raw;
+  }).filter(Boolean).join("\n");
   const status = document.getElementById("status");
   if (!text) { status.textContent = "請先勾選報價。"; return; }
   try {
@@ -276,40 +298,45 @@ document.getElementById("addSupplier").onsubmit = async event => {
 loadSuppliers();
 loadArchives();
 
-const board = document.getElementById("board");
+const panes = document.getElementById("panes");
 function readCols() {
-  try { return JSON.parse(localStorage.getItem("formatter-cols")) || { left: 260, right: 380 }; }
-  catch (err) { return { left: 260, right: 380 }; }
+  try { return JSON.parse(localStorage.getItem("formatter-cols")) || { right: 420 }; }
+  catch (err) { return { right: 420 }; }
 }
 function applyCols(cols) {
-  const left = Math.max(180, Math.min(cols.left, 520));
-  const right = Math.max(240, Math.min(cols.right, 640));
-  cols.left = left;
-  cols.right = right;
-  board.style.gridTemplateColumns = left + "px 8px minmax(180px,1fr) 8px " + right + "px";
+  const width = panes.clientWidth || 1100;
+  const minQuotes = 280;
+  const minTool = 280;
+  let right = Math.max(minTool, Number(cols.right) || 420);
+  right = Math.min(right, Math.max(minTool, width - 14 - minQuotes));
+  cols.right = Math.round(right);
+  panes.style.gridTemplateColumns = "minmax(280px,1fr) 14px " + cols.right + "px";
 }
 applyCols(readCols());
+window.addEventListener("resize", () => applyCols(readCols()));
 document.querySelectorAll(".split").forEach(bar => {
   bar.onpointerdown = event => {
+    if (event.button !== 0) return;
     event.preventDefault();
+    try { bar.setPointerCapture(event.pointerId); } catch (err) {}
     const cols = readCols();
     const startX = event.clientX;
-    const startLeft = cols.left;
     const startRight = cols.right;
-    const side = bar.dataset.split;
+    document.body.classList.add("resizing");
     function move(ev) {
-      const dx = ev.clientX - startX;
-      cols.left = side === "left" ? startLeft + dx : startLeft;
-      cols.right = side === "right" ? startRight - dx : startRight;
+      cols.right = startRight - (ev.clientX - startX);
       applyCols(cols);
     }
     function up() {
-      localStorage.setItem("formatter-cols", JSON.stringify(cols));
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      localStorage.setItem("formatter-cols", JSON.stringify({ right: cols.right }));
+      document.body.classList.remove("resizing");
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", up);
+      bar.removeEventListener("pointercancel", up);
     }
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up);
+    bar.addEventListener("pointercancel", up);
   };
 });
 
