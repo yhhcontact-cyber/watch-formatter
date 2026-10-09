@@ -9,40 +9,6 @@ from werkzeug.security import check_password_hash
 
 HK = timezone(timedelta(hours=8))
 
-DEFAULT_SUPPLIERS = [
-    ("+85254664292", "韓國人LUXETIME", ""),
-    ("+12295101449", "JERRY", ""),
-    ("+85260681901", "Henson D.L", ""),
-    ("+8619388924279", "Becky'watches", ""),
-    ("+85252816834", "萬事昌10樓He", ""),
-    ("+85255868103", "Yoco", ""),
-    ("+85265470069", "Li Li watches", ""),
-    ("+85251788842", "Jordan Pp Used", ""),
-    ("+8618145839070", "Liz", ""),
-    ("+85269050448", "Tom watch Yama", ""),
-    ("+85263506004", "Don.S", ""),
-    ("+85263640033", "Legacy Artisan", ""),
-    ("+85267038205", "KEN AU", ""),
-    ("+601121110924", "Yew曜 watch", ""),
-    ("+85261637668", "SHING Worldtime 18A", ""),
-    ("+85267503855", "FH", ""),
-    ("+85265551059", "Allen @@", ""),
-    ("+85266765777", "Kou", ""),
-    ("+85259205732", "Suzanna Mauck", ""),
-    ("+18328007624", "Khoa Ng Texas USA", ""),
-    ("+85264159223", "Kit World Time", ""),
-    ("+85266707420", "合勝改卡錶Yìu", ""),
-    ("+85269518626", "恆耀鐘錶 啊一", ""),
-    ("+85296306585", "真珍時間", ""),
-    ("+85291561900", "Simon Lee", ""),
-    ("+85292115831", "Fan@LUXY TIMEPIECES", "Fan@LUXY TIMEPIECES Client LTD 124060"),
-    ("+85366505508", "澳門紅利豐Nic Ng", ""),
-    ("+60163062406", "Evoanne Cheah", ""),
-    ("+85290898060", "First Rolex Sue 老闆", ""),
-    ("+8617620193618", "Bebe", ""),
-    ("+84963000000", "CV越南", "越南CV"),
-]
-
 BRAND_HEADER = {
     "rolex": "ROLEX",
     "tudor": "TUDOR",
@@ -165,14 +131,6 @@ def ensure_tables():
                     ON CONFLICT (username) DO NOTHING
                     """
                 )
-            cur.executemany(
-                """
-                INSERT INTO formatter_suppliers (phone, display_name, aliases)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (phone) DO NOTHING
-                """,
-                DEFAULT_SUPPLIERS,
-            )
         conn.commit()
     finally:
         conn.close()

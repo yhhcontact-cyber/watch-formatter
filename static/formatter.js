@@ -83,9 +83,31 @@ function getWatchCategory(modelNum) {
     return "other";
 }
 
+function monthYear(month, givenYear) {
+    let year = givenYear;
+    if (year === null || year === undefined || Number.isNaN(year)) {
+        const now = new Date();
+        year = now.getFullYear();
+        if (month > now.getMonth() + 1) year -= 1;
+    } else if (year < 100) {
+        year = 2000 + year;
+    }
+    return year;
+}
+
+function uniqueWatchLines(lines) {
+    const seen = new Set();
+    return lines.filter(line => {
+        const key = line.replace(/\s+/g, " ").trim().toUpperCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 function getBatchWeight(batchStr) {
     if (!batchStr) return 0;
-    let match = batchStr.match(/n(\d{1,2})(?:\/(\d{2,4}))?/i);
+    let match = batchStr.match(/[nw](\d{1,2})(?:\/(\d{2,4}))?/i);
     if (match) {
         let month = parseInt(match[1], 10);
         let yearStr = match[2];
@@ -148,6 +170,12 @@ function processWatchData() {
             rememberedBatch = cleanLineBatch.toLowerCase(); 
             return; 
         }
+        let wholeWeek = cleanLineBatch.match(/^[wW](1[0-2]|[1-9])$/);
+        if (wholeWeek) {
+            let month = parseInt(wholeWeek[1], 10);
+            rememberedBatch = `w${month}/${monthYear(month, null)}`;
+            return;
+        }
 
         let isUsed = false;
         if (/\bused\b/i.test(line)) isUsed = true;
@@ -167,12 +195,12 @@ function processWatchData() {
         let extractedMonthBatch = '';
         let lineForTokens = safeLine;
 
-        let dateMatch = safeLine.match(/\b([nN]?\d{1,4})\s*[\/]\s*([nN]?\d{1,4})\b/);
+        let dateMatch = safeLine.match(/\b([nwNW]?\d{1,4})\s*[\/]\s*([nwNW]?\d{1,4})\b/);
         if (dateMatch) {
             let part1 = dateMatch[1];
             let part2 = dateMatch[2];
-            let num1 = parseInt(part1.replace(/[nN]/g, ''), 10);
-            let num2 = parseInt(part2.replace(/[nN]/g, ''), 10);
+            let num1 = parseInt(part1.replace(/[nwNW]/g, ''), 10);
+            let num2 = parseInt(part2.replace(/[nwNW]/g, ''), 10);
             let year = null;
             let month = null;
             
@@ -184,8 +212,8 @@ function processWatchData() {
             
             if (year !== null && month !== null && month >= 1 && month <= 12) {
                 let fullYear = year < 100 ? 2000 + year : year;
-                // 改良：強制保留所有年份，不因當前年份而省略，避免跨年排序錯亂
-                extractedMonthBatch = `n${month}/${fullYear}`; 
+                let letter = /w/i.test(part1) || /w/i.test(part2) ? "w" : "n";
+                extractedMonthBatch = `${letter}${month}/${fullYear}`; 
                 lineForTokens = safeLine.replace(dateMatch[0], ' ');
             }
         }
@@ -229,6 +257,12 @@ function processWatchData() {
             if (/^\*\d+$/.test(token)) { quantity = token; return; }
             if (/^[+-]?\d+(\.\d+)?%$/.test(token)) { discount = `(${token})`; return; }
             if (/^[nN]\d+$/.test(token)) { lineBatch = token.toLowerCase(); return; }
+            let weekMonth = token.match(/^[wW](1[0-2]|[1-9])$/);
+            if (weekMonth) {
+                let month = parseInt(weekMonth[1], 10);
+                lineBatch = `w${month}/${monthYear(month, null)}`;
+                return;
+            }
 
             let cleanToken = token.replace(/,/g, '');
             let isPureNum = /^\d+(\.\d+)?$/.test(cleanToken);
@@ -341,11 +375,11 @@ function processWatchData() {
                 return weightA - weightB;
             });
 
-            let linesResult = categorizedData[catName].map(item => {
+            let linesResult = uniqueWatchLines(categorizedData[catName].map(item => {
                 // 陣列化過濾並按固定順序組裝：型號 -> 顏色細節 -> 時標 -> 錶帶 -> 批次 -> 價格
                 let lineStr = [item.model, item.dialColor, item.dialMarker, item.braceletType, item.batch, item.price, item.discount, item.quantity].filter(Boolean).join(' ');
                 return item.isUsed ? "USED " + lineStr : lineStr;
-            });
+            }));
 
             finalOutput += catName + "\n" + linesResult.join('\n') + "\n\n";
         }
@@ -363,10 +397,10 @@ function processWatchData() {
 
     extraBrands.forEach(brand => {
         if (categorizedData[brand.key] && categorizedData[brand.key].length > 0) {
-            let linesResult = categorizedData[brand.key].map(item => {
+            let linesResult = uniqueWatchLines(categorizedData[brand.key].map(item => {
                 let lineStr = [item.model, item.dialColor, item.dialMarker, item.braceletType, item.batch, item.price, item.discount, item.quantity].filter(Boolean).join(' ');
                 return item.isUsed ? "USED " + lineStr : lineStr;
-            });
+            }));
             finalOutput += brand.label + "\n" + linesResult.join('\n') + "\n\n";
         }
     });
